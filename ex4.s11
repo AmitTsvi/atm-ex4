@@ -6,6 +6,7 @@ lcs = 177546
 
 cr=15
 lf=12
+bs=10
 space=40
 asterisk=52
 
@@ -19,9 +20,17 @@ main:	mov pc, sp			;initializing the stack
 		mov #200, @#62		;keyboard routine priority 4
 		mov #clock, @#100	;clock routine
 		mov #300, @#102		;clock routine priority 6
-		mov #100, @#tps		;printer IE=0
+		mov #0, @#tps		;printer IE=0
 		mov #101, @#tks		;keyboard RE=1 IE=1
 		mov #100, @#lcs		;clock IE=1
+		mov #text10, -(sp)
+		mov n10, -(sp)
+		jsr pc, printString	;print welcome message
+		cmp (sp)+, (sp)+
+		mov #text16, -(sp)		;print the $ indicator for next command line
+		mov n16, -(sp)
+		jsr pc, printString
+		cmp (sp)+, (sp)+
 w:		wait				;wait for keyboard interrupt
 		tst (sp)			;test quit indication
 		bne sayGoodBye
@@ -77,25 +86,36 @@ clockFin:
 ;##################################################################			
 input:	mov r0, -(sp)		;save r0 original value in stack
 		mov r1, -(sp)		;save r1 original value in stack
+		mov r2, -(sp)		;save r2 original value in stack
 		movb @#tkb, r0		;move user input to r0
 		bic #177600, r0		;user input is a char so we save only 7 lower bits
+		cmpb r0, #cr		;if the input is CR we should print LF,CR
+		bne echo
+		mov #lf, r0
 echo:	tstb @#tps			;pause until the printer is ready
 		bpl echo
 		movb r0, @#tpb		;print the input char
+		cmpb r0, #lf
+		bne notNewlinePrint
+		mov #cr, r0
+		br echo
+notNewlinePrint:		
 		mov #command, r1	;save the command input buffer address in r1
 		cmp inputDest, #command	;check if current process is receiving a new image or command
 		beq commandInput	;advance to command input part
 		mov #img50Buffer, r1;change writing destination to the buffer for images
 ;handles an input		
 commandInput:		
-		cmpb r0, #10		;check for input = 'BS'
+		cmpb r0, #bs		;check for input = 'BS'
 		beq backspace
 		cmpb r0, #cr		;check for input = 'CR'
 		beq endofline
-		inc length			;advance the "destination pointer" (same as the counter of input chars)
 		cmp length, #62		;max command length is 50 chars
-		bgt endInputRoutine	;ignores any chars after 50 chars received
-		movb r0, length(r1)	;put the char in the destination at the current "destination pointer"
+		bge endInputRoutine	;ignores any chars after 50 chars received
+		mov r1, r2			;start of input
+		add length, r2		;r2 += number of chars that were already inserted
+		movb r0, (r2)		;put the char in the destination at the current "destination pointer"
+		inc length			;advance the "destination pointer" (same as the counter of input chars)
 		br endInputRoutine
 ;handles a backspace char
 backspace:
@@ -104,7 +124,7 @@ backspace:
 printSP: tstb @#tps
 		bpl printSP
 		mov r0, @#tpb
-		mov #10, r0			;print backspace to get the "printer pointer" back again
+		mov #bs, r0			;print backspace to get the "printer pointer" back again
 printBS: tstb @#tps
 		bpl printBS
 		mov r0, @#tpb
@@ -119,14 +139,15 @@ endofline:
 		clr Clock10th
 		clr Clock
 		jsr pc, excuteCommand	;execute the command
-		mov (sp), 10(sp)	;quit signal to main
+		mov (sp), 12(sp)	;quit signal to main
 		tst (sp)+			;pop the place for quit indication for excuteCommand
 		clr length			;length = 0 prepare for next line of input
 		br endInputRoutine
 imgEndofline:
-		jsr pc, insertLineToImage	;insert the new date to the current image
+		jsr pc, insertLineToImage	;insert the new data to the current image
 		clr length
 endInputRoutine:
+		mov (sp)+, r2		;restore r2 original value
 		mov (sp)+, r1		;restore r1 original value
 		mov (sp)+, r0		;restore r0 original value
 		mov #101, @#tks		;keyboard RE=1
@@ -174,8 +195,8 @@ comm3:	cmp r1, #3
 		mov r1, -(sp)		;number of command in stack
 		jsr pc, execSet
 		tst (sp)+			;pop number of command
-		mov r1, -(sp)		;number of command passed as argument in stack to printTimeMsg
-		jsr pc, printTimeMsg	;print the time that took to perform the command
+		mov r1, -(sp)		;number of command passed as argument in stack to messageClk
+		jsr pc, messageClk	;print the time that took to perform the command
 		tst (sp)+
 		mov #text16, -(sp)		;print the $ indicator for next command line
 		mov n16, -(sp)
@@ -189,8 +210,8 @@ comm4:	cmp r1, #4
 		mov r1, -(sp)		;number of command in stack
 		jsr pc, execSet
 		tst (sp)+			;pop number of command
-		mov r1, -(sp)		;number of command passed as argument in stack to printTimeMsg
-		jsr pc, printTimeMsg	;print the time that took to perform the command
+		mov r1, -(sp)		;number of command passed as argument in stack to messageClk
+		jsr pc, messageClk	;print the time that took to perform the command
 		tst (sp)+
 		mov #text16, -(sp)		;print the $ indicator for next command line
 		mov n16, -(sp)
@@ -214,8 +235,8 @@ comm6:	cmp r1, #6
 		jsr pc, print		;print the image
 		cmp (sp)+, (sp)+	;pop 3 inputs from stack
 		tst (sp)+
-		mov r1, -(sp)		;number of command passed as argument in stack to printTimeMsg
-		jsr pc, printTimeMsg	;print the time that took to perform the command
+		mov r1, -(sp)		;number of command passed as argument in stack to messageClk
+		jsr pc, messageClk	;print the time that took to perform the command
 		tst (sp)+
 		mov #text16, -(sp)		;print the $ indicator for next command line
 		mov n16, -(sp)
@@ -236,7 +257,7 @@ unknown:
 		jsr pc, printString
 		cmp (sp)+, (sp)+
 finishExecute:
-		cmp (sp)+, (sp)+		;pop address of input command and number of command from stack
+		tst (sp)+				;pop address of input command from stack
 		mov (sp)+, r1			;restore r1 original value
 		mov (sp)+, r0			;restore r0 original value
 		rts pc
@@ -254,14 +275,14 @@ nextCommandCheck:
 		mov 12(sp), r1		;r1 used as read pointer for input
 		inc r0				;indicate that next command is checked
 notStringEnd:		
-		cmpb (r1), #'@		;if r1 is @ that means that it matched a whole command name string
+		cmpb (r2), #'@		;if r1 is @ that means that it matched a whole command name string
 		beq commandFound			
 		cmpb (r1)+, (r2)+	;advance both input and string pointers
 		beq notStringEnd	;if chars match then move to check the next char
 		cmp r0, #7			;total of 7 command strings to check
 		beq notLegal		;this is not a legal command line
 advance:					;if char does not match go to check the next command string		
-		cmpb (r1)+, #'@		;advance 1 char at a time until get to a @ then the next char is start of next command string
+		cmpb (r2)+, #'@		;advance 1 char at a time until get to a @ then the next char is start of next command string
 		bne advance
 		br nextCommandCheck
 notLegal:
@@ -280,18 +301,21 @@ execImgCommand:
 		mov r0, -(sp)		;save r0 original value in stack
 		mov r1, -(sp)		;save r1 original value in stack
 		mov r2, -(sp)		;save r2 original value in stack
+		mov r3, -(sp)		;save r3 original value in stack
 		mov #2, r2			;r2 = number of arguments for command enc/dec
 		clr r1				;saves nRows or nCols during the routine
-		mov 12(sp), r0		;address of start of input command in r0
+		mov 14(sp), r0		;address of start of input command in r0
 		add #6, r0			;"encode"/"decode" is 6 char long
 nextchar:
 		cmpb (r0), #'0		;check that the char is a valid octal digit
 		blt nextArg
 		cmpb (r0), #'7
 		bgt nextArg
-		mul #10, r1;		number = number*8 
-		add (r0), r1;		number = number+'x'
-		sub #'0, r1;		number = number-'0'
+		mul #10, r1;		number = number*8
+		clr r3
+		movb (r0), r3
+		add r3, r1;		number = number+'x'
+		sub #60, r1;		number = number-'0'
 nextArg:
 		inc r0
 		tst r1
@@ -301,8 +325,8 @@ nextArg:
 		sob r2, nextchar	;2 arguments for the command (r2=2 in the beginning)
 		mov (sp)+, nCols;	;write the arguments in the global variables
 		mov (sp)+, nRows;
-		mov 10(sp), EncDec	;number of command indicates which command is performed
-		cmp 10(sp), #2
+		mov 12(sp), EncDec	;number of command indicates which command is performed
+		cmp #2, 12(sp)
 		beq askDecodeImg
 		mov #text1, -(sp)
 		mov n1, -(sp)
@@ -313,6 +337,7 @@ askDecodeImg:
 pAskImg:
 		jsr pc, printString	;print request to enter the image
 		cmp (sp)+, (sp)+	;pop inputs for printString
+		mov (sp)+, r3		;restore r3 original value
 		mov (sp)+, r2		;restore r2 original value
 		mov (sp)+, r1		;restore r1 original value
 		mov (sp)+, r0		;restore r0 original value
@@ -326,56 +351,58 @@ execSet:
 	mov r1, -(sp)			;save r1 original value in stack
 	mov r2, -(sp)			;save r2 original value in stack
 	mov r3, -(sp)			;save r3 original value in stack
+	mov r4, -(sp)			;save r4 original value in stack
 	mov #command, r3
 	add length, r3			;r3 serves as end of input indicator
-	mov 14(sp), r0			;address of start of input command in r0
+	mov 16(sp), r0			;address of start of input command in r0
 	clr r1					;serves as counter for input length (final length is 16)
 nextSetChar:
 	clr r2					;serves as temp storage for char processing
-	cmp (r0), #'0			;check that the char is a valid hexa digit
+	cmpb (r0), #'0			;check that the char is a valid hexa digit
 	blt notValidSet
-	cmp (r0), #'f
+	cmpb (r0), #'f
 	bgt notValidSet
-	cmp (r0), #'9
+	cmpb (r0), #'9
 	ble zeroToNine
-	cmp (r0), #'a
+	cmpb (r0), #'a
 	bge aTof
 notValidSet:
 	inc r0
 	br nextSetChar
 zeroToNine:					;convert char to octal value
 	movb (r0)+, r2
-	sub #'0, r2
+	sub #60, r2
 	br prepareNextChar
 aTof:						;convert char to octal value
 	movb (r0)+, r2
-	sub #'a, r2
+	sub #141, r2
 	add #12, r2
 prepareNextChar:
-	cmp #16, r1				;max 16 digits in hash or key
+	cmp #20, r1				;max 16 digits in hash or key
 	beq fullSet
-	cmp r3, r0				;check if end of input buffer reached
-	bge fullSet
-	cmp 12(sp), #3			;3 is setHash's command number
+	cmp r0, r3				;check if end of input buffer reached
+	bgt fullSet
+	cmp 14(sp), #3			;3 is setHash's command number
 	bne insertToKey
-	movb r2, Hash(r1)		;place the values in hash function
+	mov r1, r4				;number of digits already in
+	add #Hash, r4			;r4 += Hash start address
+	movb r2, (r4)		;place the values in hash function
 	inc r1
 	br nextSetChar
 insertToKey:
-	movb r2, tempKey(r1)	;place the values in key temporary buffer
+	mov r1, r4				;number of digits already in
+	add #tempKey, r4		;r4 += tempKey start address
+	movb r2, (r4)	;place the values in key temporary buffer
 	inc r1
 	br nextSetChar
 fullSet:
-	cmp 12(sp), #3			;3 is setHash
+	cmp 14(sp), #3			;3 is setHash
 	bne keyFull
 	mov #text5, -(sp)		;print hash message
 	mov n5, -(sp)
 	jsr pc, printString
 	cmp (sp)+, (sp)+
-	mov #Hash, -(sp)		;print the hash that was received
-	mov #16, -(sp)
-	jsr pc, printString
-	cmp (sp)+, (sp)+
+	jsr pc, diplayHash		;print the hash that was received
 	br fullSetDone
 keyFull:
 	mov #tempKey, -(sp)		;buffer address to stack
@@ -388,15 +415,56 @@ keyFull:
 	mov n6, -(sp)
 	jsr pc, printString
 	cmp (sp)+, (sp)+
+	mov #inputKey, -(sp)
 	jsr pc, printKey		;print the new key
-fullSetDone:	
+	tst (sp)+
+fullSetDone:
+	mov (sp)+, r4			;restore r4 original value
 	mov (sp)+, r3			;restore r3 original value
 	mov (sp)+, r2			;restore r2 original value
 	mov (sp)+, r1			;restore r1 original value
 	mov (sp)+, r0			;restore r0 original value
 	rts pc
-;##################################################################	
+;##################################################################
 
+
+
+;##################################################################
+diplayHash:
+	mov r0, -(sp)			;save r0 original value in stack
+	mov r1, -(sp)			;save r1 original value in stack
+	mov r2, -(sp)			;save r2 original value in stack
+	mov r3, -(sp)			;save r3 original value in stack
+	mov #Hash, r0			;original hash is pointed by r0
+	mov #printHash, r1		;printable hash is pointed by r1
+	clr r2
+hashLoop:					;convert numerical value to corresponding char
+	movb (r0), r2			
+	cmpb r2, #12			;check if the char is 0-9 or a-f
+	bge adda
+	add #60, r2
+	br insertHash
+adda:
+	add #141, r2
+	sub #12, r2
+insertHash:
+	movb r2, (r1)+			;insert the char to #printHash
+	inc r0					;increase both pointers
+	mov #printHash, r3		
+	add #20, r3				;r3 points to end of hash (indicates writing to illegal memory)
+	cmp r1, r3
+	bne hashLoop
+	mov #printHash, -(sp)	
+	mov #22, -(sp)
+	jsr pc, printString		;print the Hash
+	cmp (sp)+, (sp)+
+	mov (sp)+, r3			;restore r3 original value
+	mov (sp)+, r2			;restore r2 original value
+	mov (sp)+, r1			;restore r1 original value
+	mov (sp)+, r0			;restore r0 original value
+	rts pc
+
+;##################################################################
 
 
 
@@ -432,18 +500,21 @@ execCrack:
 		mov r0, -(sp)		;save r0 original value in stack
 		mov r1, -(sp)		;save r1 original value in stack
 		mov r2, -(sp)		;save r2 original value in stack
+		mov r3, -(sp)		;save r3 original value in stack
 		mov #3, r2			;r2 = number of arguments for command
 		clr r1				;saves nRows or nCols or KeyLen during the routine
-		mov 10(sp), r0		;address of start of input command in r0
+		mov 12(sp), r0		;address of start of input command in r0
 		add #5, r0			;"crack" is 5 char long
 nextCrackchar:
 		cmpb (r0), #'0		;check that the input is a valid octal digit
 		blt CrackArg
 		cmpb (r0), #'7
 		bgt CrackArg
-		mul #10, r1			;number = number*8 
-		add (r0), r1		;number = number+'x'
-		sub #'0, r1			;number = number-'0'
+		mul #10, r1			;number = number*8
+		clr r3
+		movb (r0), r3
+		add r3, r1			;number = number+'x'
+		sub #60, r1			;number = number-'0'
 CrackArg:
 		inc r0
 		tst r1				;continue reading input until the argument is found
@@ -458,6 +529,7 @@ CrackArg:
 		mov n7, -(sp)
 		jsr pc, printString
 		cmp (sp)+, (sp)+
+		mov (sp)+, r3		;restore r3 original value
 		mov (sp)+, r2		;restore r2 original value
 		mov (sp)+, r1		;restore r1 original value
 		mov (sp)+, r0		;restore r0 original value
@@ -471,7 +543,8 @@ insertLineToImage:
 		mov r1, -(sp)		;save r1 original value in stack
 		mov r2, -(sp)		;save r2 original value in stack
 		mov r3, -(sp)		;save r3 original value in stack
-		mov img50Buffer, r0		;r0 is keyboard buffer current address
+		clr r3
+		mov #img50Buffer, r0		;r0 is keyboard buffer current address
 		mov inputDest, r2		;r2 is IMAGE start address
 		add imagenBytes, r2		;r2 is address of next byte in image (imagenBytes indicates how many bytes were already inserted)
 		cmp inputDest, #IMG1	;IMG1 indicates that this is an image for enc/dec commands
@@ -483,32 +556,32 @@ calcEncDec:
 		mov nCols, r1
 		mul nRows, r1			;r1 is end of image indicator
 insetNextChar:
+		cmp r1, imagenBytes		;test if the image is full
+		beq noMoreBytes
 		tst length				;test if all the input was read
 		bne moreCharsinLine
 		jmp endOfLineInsert
-moreCharsinLine:		
-		cmp r1, imagenBytes		;test if the image is full
-		beq noMoreBytes
+moreCharsinLine:
 		movb (r0)+, r3			;move input char for processing
-		cmp r3, #'0				;check that it is a valid hexa digit
+		cmpb r3, #'0				;check that it is a valid hexa digit
 		blt illegalImgChar
-		cmp r3, #'f
+		cmpb r3, #'f
 		bgt illegalImgChar
-		cmp r3, #'9
+		cmpb r3, #'9
 		ble digitValue
-		cmp r3, #'a
+		cmpb r3, #'a
 		bge charValue
 illegalImgChar:
 		dec length
 		br insetNextChar
 digitValue:
-		movb r3, (r2)
-		sub #'0, (r2)+			;write into image the octal values of the char
+		sub #60, r3
+		movb r3, (r2)+			;write into image the octal values of the char
 		inc imagenBytes			;indicates that another number was inserted into image
 		dec length
 		br insetNextChar
 charValue:
-		sub #'a, r3
+		sub #141, r3
 		add #12, r3
 		movb r3, (r2)+			;write into image the octal values of the char
 		inc imagenBytes			;indicates that another number was inserted into image
@@ -548,7 +621,10 @@ startCracking:
 		jsr pc, changePrio
 		tst (sp)+
 		tst crackQuitFlag
-		bne endOfLineInsert
+		beq dontQuit
+		jmp endOfLineInsert
+dontQuit:		
+		clr imagenBytes
 		mov #text9, -(sp)		;print crack found key message
 		mov n9, -(sp)
 		jsr pc, printString
@@ -557,9 +633,11 @@ startCracking:
 		mul #4, r1
 		cmp outputKey(r1), #-1	;if the key is longer than crackKeyLen - no key found
 		bne noKeyFound
+		mov #outputKey, -(sp)
 		jsr pc, printKey		;print the key
-		mov #5, -(sp)		;number of command passed as argument in stack to printTimeMsg
-		jsr pc, printTimeMsg	;print the time that took to perform crack
+		tst (sp)+
+		mov #5, -(sp)		;number of command passed as argument in stack to messageClk
+		jsr pc, messageClk	;print the time that took to perform crack
 		tst (sp)+
 		mov #emptyKey, -(sp)	;reset the key for next crack command
 		mov #1, -(sp)
@@ -598,16 +676,29 @@ startEncDec:
 		cmp EncDec, #1			;test if the command is encode(1) of decode(2) 
 		bne shouldDecode
 		jsr pc, encode
-		mov EncDec, -(sp)		;number of command passed as argument in stack to printTimeMsg
-		jsr pc, printTimeMsg	;print the time that took to perform encode/decode
+		mov #text2, -(sp)
+		mov n2, -(sp)
+		jsr pc, printString
+		cmp (sp)+, (sp)+
+		mov EncDec, -(sp)		;number of command passed as argument in stack to messageClk
+		jsr pc, messageClk	;print the time that took to perform encode/decode
 		tst (sp)+
 		br popEncDecStack
 shouldDecode:
 		jsr pc, decode
+		mov #text4, -(sp)
+		mov n4, -(sp)
+		jsr pc, printString
+		cmp (sp)+, (sp)+
+		mov EncDec, -(sp)		;number of command passed as argument in stack to messageClk
+		jsr pc, messageClk	;print the time that took to perform encode/decode
+		tst (sp)+
+		br popEncDecStack
 popEncDecStack:		
 		cmp (sp)+, (sp)+		;popping the stack - 5 inputs in stack and 0 outputs - 5 pops
 		cmp (sp)+, (sp)+
 		tst (sp)+
+		clr imagenBytes
 		clr EncDec				;finished the command so reset EncDec indicator
 		mov #IMG1, -(sp)		;print the encoded/decoded image
 		mov nRows, -(sp)
@@ -638,7 +729,7 @@ changePrio:				;change the software priority during crack process
 
 
 ;##################################################################
-printTimeMsg
+messageClk:
 		mov r0, -(sp)		;save r0 original value in stack
 		mov r1, -(sp)		;save r1 original value in stack
 		mov 6(sp), r0			;r0 contains number of command
@@ -647,41 +738,41 @@ printTimeMsg
 print1:		
 		cmp r0, #1
 		bne print2
-		mov #comm1, -(sp)		;command name to stack
+		mov #command1, -(sp)		;command name to stack
 		mov #6, -(sp)			;command name's length to stack
-		br printTimeEnd
+		br timeEnd
 print2:
 		cmp r0, #2
 		bne print3
-		mov #comm2, -(sp)		;command name to stack
+		mov #command2, -(sp)		;command name to stack
 		mov #6, -(sp)			;command name's length to stack
-		br printTimeEnd
+		br timeEnd
 print3:
 		cmp r0, #3
 		bne print4
-		mov #comm3, -(sp)		;command name to stack
+		mov #command3, -(sp)		;command name to stack
 		mov #7, -(sp)			;command name's length to stack
-		br printTimeEnd
+		br timeEnd
 print4:
 		cmp r0, #4
 		bne print5
-		mov #comm4, -(sp)		;command name to stack
+		mov #command4, -(sp)		;command name to stack
 		mov #6, -(sp)			;command name's length to stack
-		br printTimeEnd
+		br timeEnd
 print5:
 		cmp r0, #5
 		bne print6
 		mov CrackClock, 2(sp)	;replace the regular clock with crack's clock
 		mov Crack10th, (sp)
-		mov #comm5, -(sp)		;command name to stack
+		mov #command5, -(sp)		;command name to stack
 		mov #5, -(sp)			;command name's length to stack
-		br printTimeEnd
+		br timeEnd
 print6:
 		cmp r0, #6
 		bne print7
-		mov #comm6, -(sp)		;command name to stack
+		mov #command6, -(sp)		;command name to stack
 		mov #5, -(sp)			;command name's length to stack
-printTimeEnd:
+timeEnd:
 		jsr pc, printString		;print the command's name
 		cmp (sp)+, (sp)+
 		mov #text11, -(sp)
@@ -1229,7 +1320,7 @@ print:		mov r0, -(sp)		;backup register r0, r1, r2, r3 and r4 values in stack
 printKey:	mov r0, -(sp)		;backup register r0, r1, and r2 values in stack
 			mov r1, -(sp)
 			mov r2, -(sp)
-			mov #outputKey, r0	;first node address
+			mov 10(sp), r0	;first node address
 			beq printFin			;if outputKey points to a null 
 			mov (r0)+, r1		;loop through the outputKey, the node value saved in r1, and the next node address in r0
 			cmp #-1, r1	
@@ -1244,12 +1335,16 @@ printKey:	mov r0, -(sp)		;backup register r0, r1, and r2 values in stack
 			beq printFin
 			mov (r0),r0
 			br .-44
-printFin:	mov (sp)+, r2		;restore register r0, r1, and r2 values from stack
+printFin:	mov #text17, -(sp)
+			mov n17, -(sp)
+			jsr pc, printString		;print newline
+			cmp (sp)+, (sp)+
+			mov (sp)+, r2		;restore register r0, r1, and r2 values from stack
 			mov (sp)+, r1
 			mov (sp)+, r0
 			rts pc				;return from subroutine with the pc
 ;Helper function set sets the value to print in ascii in toPrint variable, gets the value to print in register r1 and buffer address in register r2
-setBuffer:   cmp #12, r1			;if the number is greater then 12 it should be printed as character (in hex)
+setBuffer:  cmp #12, r1		;if the number is greater then 12 it should be printed as character (in hex)
 			ble .+12
 			add #60, r1			;to ascii 
 			mov r1, (r2)		;put value in buffer
@@ -1258,21 +1353,54 @@ setBuffer:   cmp #12, r1			;if the number is greater then 12 it should be printe
 			mov r1, (r2)		;put value in buffer
 			rts pc				;return from subroutine with the pc
 			
-;note:      add this buffer to the main function for printing purposes			
+			
+;Function setKey sets the key in given linked list
+setKey:		mov r0, -(sp)		;backup register r0, r1, r2, r3 and r4 values in stack
+			mov r1, -(sp)
+			mov r2, -(sp)
+			mov r3, -(sp)
+			mov r4, -(sp)
+			mov 20(sp), r0 		;move original key address to register r0
+			beq .+50			;if the address is null - return from the function
+			mov 16(sp), r1		;move key length to register r1 
+			beq .+44			;if key length is zero - return from the function
+			mov 14(sp), r2		;move linked list address to register r2
+			beq .+36			;if the address in null - return from the function
+			clr (r2)
+			movb (r0)+, (r2)
+			add #2, r2
+			tst (r2)
+			beq .+22			;if the next address in null - we reached the maximum possible key 
+			dec r1				
+			beq .+6			;if the key length number got to zero we finished setting the key, and we should fill the left placess with -1
+			mov (r2), r2
+			br .-22				;continue looping
+			mov (r2), r2
+			mov #-1, (r2)+
+			tst (r2)
+			bne .-10			;continue to fill the rest key nodes in linked list
+			mov (sp)+, r4		;restore register r0, r1, r2, r3 and r4 values from stack
+			mov (sp)+, r3
+			mov (sp)+, r2
+			mov (sp)+, r1
+			mov (sp)+, r0
+			rts pc
+
+printTime:	rts pc
 
 
-
+			
 .even
 toPrint:			.blkw 1
 
-.even
-
 Hash:	.byte	0,1,2,3,4,5,6,7,10,11,12,13,14,15,16,17
+printHash: .ascii<0123456789abcdef\n\r>
 tempKey: .byte	0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
 emptyKey: .byte -1
-EncDec: .byte 0
 
 .even
+
+EncDec: .word 0
 
 nRows: .word 0
 nCols: .word 0
@@ -1351,6 +1479,7 @@ n13: .word 20
 n14: .word 3
 n15: .word 12
 n16: .word 2
+n17: .word 2
 
 
 text1: .ascii<Please enter image to encode\n\r>
@@ -1369,6 +1498,7 @@ text13: .ascii<Unknown command >
 text14: .ascii<.\n\r>
 text15: .ascii<Goodbye!\n\r>
 text16: .ascii<$ >
+text17: .ascii<\n\r>
 
 command1: .ascii<encode@>
 command2: .ascii<decode@>
