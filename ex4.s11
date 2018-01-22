@@ -317,6 +317,10 @@ execImgCommand:
 		mov 14(sp), r0		;address of start of input command in r0
 		add #6, r0			;"encode"/"decode" is 6 char long
 nextchar:
+		mov #command, r3
+		add length, r3
+		cmp r0, r3
+		beq nextArg
 		cmpb (r0), #'0		;check that the char is a valid octal digit
 		blt nextArg
 		cmpb (r0), #'7
@@ -525,6 +529,10 @@ execCrack:
 		mov 12(sp), r0		;address of start of input command in r0
 		add #5, r0			;"crack" is 5 char long
 nextCrackchar:
+		mov #command, r3
+		add length, r3
+		cmp r0, r3
+		beq CrackArg
 		cmpb (r0), #'0		;check that the input is a valid octal digit
 		blt CrackArg
 		cmpb (r0), #'7
@@ -611,7 +619,9 @@ noMoreBytes:
 		cmp inputDest, #IMG3	;if IMG3 is full that means that crack process can start
 		beq startCracking
 		cmp inputDest, #IMG1	;if IMG1 is full that means that enc/dec process can start
-		beq startEncDec
+		bne middleCrack
+		jmp startEncDec
+middleCrack:		
 		mov #IMG3, inputDest	;means that finished receiving all first image of crack so next image is IMG3
 		clr imagenBytes
 		mov #text8, -(sp)
@@ -625,34 +635,29 @@ startCracking:
 		mov crackRows, -(sp)
 		mov crackCols, -(sp)
 		mov #Hash, -(sp)
-		mov #command, inputDest		;when actual cracking start should move #command to inputDest
-		mov #140, -(sp)			;change priority so that new commands can interrupt crack process
-		jsr pc, changePrio
-		tst (sp)+				;pop priority argument
-		mov #101, @#tks			;enable the keyboard
+		mov #command, inputDest	;preparations to receive new command
+		clr length
+		clr imagenBytes
 		mov #text16, -(sp)		;print the $ indicator for next command line
 		mov n16, -(sp)
 		jsr pc, printString
 		cmp (sp)+, (sp)+
 		jsr pc, system
-		cmp (sp)+, (sp)+		;popping the stack - 5 inputs in stack and 0 outputs - 5 pops
+		cmp (sp)+, (sp)+		;popping the stack - 5 inputs of system in stack and 0 outputs - 5 pops
 		cmp (sp)+, (sp)+
-		tst (sp)+
-		mov #200, -(sp)			;changing priority back so input cannot interrupt
-		jsr pc, changePrio
 		tst (sp)+
 		tst crackQuitFlag
 		beq dontQuit
 		jmp endOfLineInsert
 dontQuit:		
-		clr imagenBytes
 		mov #text9, -(sp)		;print crack found key message
 		mov n9, -(sp)
 		jsr pc, printString
 		cmp (sp)+, (sp)+
 		mov crackKeyLen, r1
 		mul #4, r1
-		cmp outputKey(r1), #-1	;if the key is longer than crackKeyLen - no key found
+		add #outputKey, r1
+		cmp (r1), #-1	;if the key is longer than crackKeyLen - no key found
 		bne noKeyFound
 		mov #outputKey, -(sp)
 		jsr pc, printKey		;print the key
@@ -672,9 +677,8 @@ dontQuit:
 		cmp (sp)+, (sp)+
 		br endOfLineInsert
 noKeyFound:
-		mov (pc)+, -(sp)			;print -1 for no key found
-		.ascii<-1>
-		mov #2, -(sp)
+		mov #text18, -(sp)			;print -1 for no key found
+		mov n18, -(sp)
 		jsr pc, printString
 		cmp (sp)+, (sp)+
 		mov #emptyKey, -(sp)	;reset the key for next crack command
@@ -701,7 +705,6 @@ startEncDec:
 		mov n2, -(sp)
 		jsr pc, printString
 		cmp (sp)+, (sp)+
-		
 		mov EncDec, -(sp)		;number of command passed as argument in stack to messageClk
 		jsr pc, messageClk	;print the time that took to perform encode/decode
 		tst (sp)+
@@ -835,12 +838,18 @@ print7:
 			;		- result key - writen in the list that was passed as input in common area
 ;registers in use:
 			;		- r1
-system:		mov r1, -(sp)			;saving r1 original value on stack
-			mov #outputKey, r1			;moving the address Key to r1
-checkNext:	jsr pc, nextKey			;calling nextKey
+system:		mov #140, -(sp)			;change priority so that new commands can interrupt crack process
+			jsr pc, changePrio
+			tst (sp)+				;pop priority argument
+			mov #101, @#tks			;enable the keyboard
+
+			mov r1, -(sp)			;saving r1 original value on stack
+checkNext:	mov #outputKey, r1			;moving the address Key to r1
+			jsr pc, nextKey			;calling nextKey
 			mov crackKeyLen, r1
 			mul #4, r1
-			cmp outputKey(r1), #-1	;if the key is longer than crackKeyLen - stop searching
+			add #outputKey, r1
+			cmp (r1), #-1	;if the key is longer than crackKeyLen - stop searching
 			bne systemFin
 			
 			tst crackQuitFlag
@@ -886,7 +895,11 @@ checkNext:	jsr pc, nextKey			;calling nextKey
 			
 			br checkNext			;stating another iteration of key checking proccess with the next key
 			
-systemFin:	mov (sp)+, r1			;restoring r1
+systemFin:	mov #100, @#tks			;disable the keyboard
+			mov #200, -(sp)			;changing priority back so input cannot interrupt
+			jsr pc, changePrio
+			tst (sp)+
+			mov (sp)+, r1			;restoring r1
 			rts pc					;done
 ;****************************************************************			
 
@@ -1363,7 +1376,7 @@ printKey:	mov r0, -(sp)		;backup register r0, r1, and r2 values in stack
 			cmp (sp)+, (sp)+	;restore stack
 			tst (r0)			;if next node address in null, it is the end of the key
 			beq printFin
-			mov (r0),r0
+			mov (r0), r0
 			br .-44
 printFin:	mov #text17, -(sp)
 			mov n17, -(sp)
@@ -1391,16 +1404,16 @@ setKey:		mov r0, -(sp)		;backup register r0, r1, r2, r3 and r4 values in stack
 			mov r3, -(sp)
 			mov r4, -(sp)
 			mov 20(sp), r0 		;move original key address to register r0
-			beq .+50			;if the address is null - return from the function
+			beq .+54			;if the address is null - return from the function
 			mov 16(sp), r1		;move key length to register r1 
-			beq .+44			;if key length is zero - return from the function
+			beq .+46			;if key length is zero - return from the function
 			mov 14(sp), r2		;move linked list address to register r2
-			beq .+36			;if the address in null - return from the function
+			beq .+40			;if the address in null - return from the function
 			clr (r2)
 			movb (r0)+, (r2)
 			add #2, r2
 			tst (r2)
-			beq .+22			;if the next address in null - we reached the maximum possible key 
+			beq .+24			;if the next address in null - we reached the maximum possible key 
 			dec r1				
 			beq .+6			;if the key length number got to zero we finished setting the key, and we should fill the left placess with -1
 			mov (r2), r2
@@ -1564,7 +1577,7 @@ n14: .word 3
 n15: .word 12
 n16: .word 2
 n17: .word 2
-
+n18: .word 4
 
 text1: .ascii<Please enter image to encode\n\r>
 text2: .ascii<The encoded image is:\n\r>
@@ -1583,6 +1596,7 @@ text14: .ascii<.\n\r>
 text15: .ascii<Goodbye!\n\r>
 text16: .ascii<$ >
 text17: .ascii<\n\r>
+text18: .ascii<-1\n\r>
 
 command1: .ascii<encode@>
 command2: .ascii<decode@>
