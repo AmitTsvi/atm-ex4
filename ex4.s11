@@ -9,6 +9,7 @@ lf=12
 bs=10
 space=40
 asterisk=52
+dot=56
 
 . = torg + 5000
 
@@ -225,6 +226,7 @@ comm5:	cmp r1, #5
 		clr Crack10th
 		clr CrackClock
 		jsr pc, execCrack
+		mov #IMG2, inputDest
 		br finishExecute
 ;print		
 comm6:	cmp r1, #6
@@ -288,6 +290,14 @@ advance:					;if char does not match go to check the next command string
 notLegal:
 		inc r0				;if no command was matched then r0 = 8 which indicates unknown command
 commandFound:
+		cmpb (r1), #space	;if the next char is not space than it is an unknown command starting with legal command name
+		beq endWithSP
+		mov #command, r2	;if this the end of input then it is a legal command
+		add length, r2
+		cmp r2, r1
+		beq endWithSP
+		mov #8, r0
+endWithSP:		
 		mov r0, 12(sp)		;command number in stack`
 		mov (sp)+, r2		;restore r2 original value
 		mov (sp)+, r1		;restore r1 original value
@@ -313,9 +323,10 @@ nextchar:
 		bgt nextArg
 		mul #10, r1;		number = number*8
 		clr r3
-		movb (r0), r3
+		movb (r0)+, r3
 		add r3, r1;		number = number+'x'
 		sub #60, r1;		number = number-'0'
+		br nextchar
 nextArg:
 		inc r0
 		tst r1
@@ -471,24 +482,32 @@ insertHash:
 
 ;##################################################################
 execUnknown:
-	mov r0, -(sp)
+	mov r0, -(sp)			;save r0 original value in stack
+	mov r1, -(sp)			;save r1 original value in stack
+	clr r1
 	mov #text13, -(sp)	;print unknown command message
 	mov n13, -(sp)
 	jsr pc, printString
 	cmp (sp)+, (sp)+
-	mov 4(sp), r0		;input start address in stack
+	mov 6(sp), r0		;input start address in stack
 unknownChar:
 	cmpb (r0), #space	;first space signs end of unknown command name
+	beq finishUnknow
+	cmp r1, length
 	beq finishUnknow
 wForPrinter:	
 	tstb @#tps			;pause until the printer is ready
 	bpl wForPrinter
 	movb (r0)+, @#tpb	;print the input char
+	inc r1
 	br unknownChar
 finishUnknow:			;print the dot in the end of the message
-	tstb @#tps;			pause until the printer is ready
-	bpl finishUnknow
-	movb #'., @#tpb;
+	mov #text14, -(sp)
+	mov n14, -(sp)
+	jsr pc, printString
+	cmp (sp)+, (sp)+
+	mov (sp)+, r0			;restore r1 original value
+	mov (sp)+, r0			;restore r0 original value
 	rts pc
 ;##################################################################
 
@@ -512,9 +531,10 @@ nextCrackchar:
 		bgt CrackArg
 		mul #10, r1			;number = number*8
 		clr r3
-		movb (r0), r3
+		movb (r0)+, r3
 		add r3, r1			;number = number+'x'
 		sub #60, r1			;number = number-'0'
+		br nextCrackchar
 CrackArg:
 		inc r0
 		tst r1				;continue reading input until the argument is found
@@ -593,6 +613,7 @@ noMoreBytes:
 		cmp inputDest, #IMG1	;if IMG1 is full that means that enc/dec process can start
 		beq startEncDec
 		mov #IMG3, inputDest	;means that finished receiving all first image of crack so next image is IMG3
+		clr imagenBytes
 		mov #text8, -(sp)
 		mov n8, -(sp)
 		jsr pc, printString		;print crack request for second image
@@ -645,7 +666,7 @@ dontQuit:
 		jsr pc, setKey
 		cmp (sp)+, (sp)+
 		tst (sp)+
-		mov #inputDest, -(sp)
+		mov inputDest, -(sp)
 		mov length, -(sp)
 		jsr pc, printString		;print the input that may have been interrupted by the result of crack
 		cmp (sp)+, (sp)+
@@ -680,6 +701,7 @@ startEncDec:
 		mov n2, -(sp)
 		jsr pc, printString
 		cmp (sp)+, (sp)+
+		
 		mov EncDec, -(sp)		;number of command passed as argument in stack to messageClk
 		jsr pc, messageClk	;print the time that took to perform encode/decode
 		tst (sp)+
@@ -700,12 +722,6 @@ popEncDecStack:
 		tst (sp)+
 		clr imagenBytes
 		clr EncDec				;finished the command so reset EncDec indicator
-		mov #IMG1, -(sp)		;print the encoded/decoded image
-		mov nRows, -(sp)
-		mov nCols, -(sp)
-		jsr pc, printEncDecImage
-		cmp (sp)+, (sp)+
-		tst (sp)+
 		mov #text16, -(sp)		;print the $ indicator for next command line
 		mov n16, -(sp)
 		jsr pc, printString
@@ -738,12 +754,24 @@ messageClk:
 print1:		
 		cmp r0, #1
 		bne print2
+		mov #IMG1, -(sp)		;print the encoded/decoded image
+		mov nRows, -(sp)
+		mov nCols, -(sp)
+		jsr pc, printEncDecImage
+		cmp (sp)+, (sp)+
+		tst (sp)+
 		mov #command1, -(sp)		;command name to stack
 		mov #6, -(sp)			;command name's length to stack
 		br timeEnd
 print2:
 		cmp r0, #2
 		bne print3
+		mov #IMG1, -(sp)		;print the encoded/decoded image
+		mov nRows, -(sp)
+		mov nCols, -(sp)
+		jsr pc, printEncDecImage
+		cmp (sp)+, (sp)+
+		tst (sp)+
 		mov #command2, -(sp)		;command name to stack
 		mov #6, -(sp)			;command name's length to stack
 		br timeEnd
@@ -1229,6 +1257,8 @@ keyFinished:	cmp (sp)+, (sp)+	;clear of storage space
 printString: mov r0, -(sp)		;backup register r0 and r1 values in stack
 			mov r1, -(sp)
 			mov 6(sp), r0		;move string length to register r0
+			tst r0				;if it is an empty string - finished
+			beq .+24
 			mov 10(sp), r1		;move string beginning address to register r1
 			tstb @#tps		
 			bpl .-4				;waiting for printer to be ready to accept value to print
@@ -1386,7 +1416,61 @@ setKey:		mov r0, -(sp)		;backup register r0, r1, r2, r3 and r4 values in stack
 			mov (sp)+, r0
 			rts pc
 
-printTime:	rts pc
+;Helper function for printing octal values as decimal
+printDec:	mov r0, -(sp)
+			mov #toPrint, r0
+			add #60, 4(sp)
+			mov 4(sp), (r0)
+			mov r0, -(sp)
+			mov #1, -(sp)
+			jsr pc, printString
+			cmp (sp)+, (sp)+
+			mov (sp)+, r0
+			rts pc
+	
+;Helper recursive function for printing
+printRec:	mov r4, -(sp)
+			mov r5, -(sp)			;backup registers
+			clr r4
+			mov 6(sp), r5			;value to print in r5
+			div #12, r4			
+			tst r4					;if the result is not 0, we continue to divide-else we print the remainder 
+			beq .+12	
+			mov r4, -(sp)
+			jsr pc, printRec		;call printRec with the result
+			tst (sp)+
+			mov r5, -(sp)			;set remainder
+			jsr pc, printDec		;print remainder
+			tst (sp)+			
+			mov (sp)+, r5
+			mov (sp)+, r4
+			rts pc
+		
+printTime:	mov r0, -(sp)
+			mov r1, -(sp)		
+			mov r2, -(sp)
+			mov r3, -(sp)		
+			mov r4, -(sp)		
+			mov r5, -(sp)			;backup registers
+			mov #toPrint, r2		;toPrint buffer address register r2
+			mov 20(sp), -(sp)		;n1 to printRec
+			jsr pc, printRec		
+			tst (sp)+
+			mov #dot, (r2)
+			mov #toPrint, -(sp)
+			mov #1, -(sp)
+			jsr pc, printString 	;print dot
+			cmp (sp)+, (sp)+
+			mov 16(sp), -(sp)		;n2 to printRec
+			jsr pc, printRec
+			tst (sp)+
+			mov (sp)+, r5			;restore registers
+			mov (sp)+, r4
+			mov (sp)+, r3		
+			mov (sp)+, r2
+			mov (sp)+, r1		
+			mov (sp)+, r0
+			rts pc
 
 
 			
@@ -1471,7 +1555,7 @@ n5: .word 25
 n6: .word 26
 n7: .word 24
 n8: .word 34
-n9: .word 14
+n9: .word 16
 n10: .word 12
 n11: .word 16
 n12: .word 5
@@ -1489,8 +1573,8 @@ text4: .ascii<The decoded image is:\n\r>
 text5: .ascii<Hash function set to >
 text6: .ascii<Encryption key set to >
 text7: .ascii<Please enter image\n\r>
-text8: .ascii<Please enter decoded image\n\r>
-text9: .ascii<The key is: >
+text8: .ascii<Please enter encoded image\n\r>
+text9: .ascii<\n\rThe key is: >
 text10: .ascii<Welcome!\n\r>
 text11: .ascii< completed in >
 text12: .ascii<sec\n\r>
