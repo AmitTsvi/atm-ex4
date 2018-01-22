@@ -22,8 +22,6 @@ main:	mov pc, sp			;initializing the stack
 		mov #clock, @#100	;clock routine
 		mov #300, @#102		;clock routine priority 6
 		mov #0, @#tps		;printer IE=0
-		mov #101, @#tks		;keyboard RE=1 IE=1
-		mov #100, @#lcs		;clock IE=1
 		mov #text10, -(sp)
 		mov n10, -(sp)
 		jsr pc, printString	;print welcome message
@@ -32,6 +30,8 @@ main:	mov pc, sp			;initializing the stack
 		mov n16, -(sp)
 		jsr pc, printString
 		cmp (sp)+, (sp)+
+		mov #101, @#tks		;keyboard RE=1 IE=1
+		mov #100, @#lcs		;clock IE=1
 w:		wait				;wait for keyboard interrupt
 		tst (sp)			;test quit indication
 		bne sayGoodBye
@@ -510,7 +510,7 @@ finishUnknow:			;print the dot in the end of the message
 	mov n14, -(sp)
 	jsr pc, printString
 	cmp (sp)+, (sp)+
-	mov (sp)+, r0			;restore r1 original value
+	mov (sp)+, r1			;restore r1 original value
 	mov (sp)+, r0			;restore r0 original value
 	rts pc
 ;##################################################################
@@ -718,7 +718,6 @@ shouldDecode:
 		mov EncDec, -(sp)		;number of command passed as argument in stack to messageClk
 		jsr pc, messageClk	;print the time that took to perform encode/decode
 		tst (sp)+
-		br popEncDecStack
 popEncDecStack:		
 		cmp (sp)+, (sp)+		;popping the stack - 5 inputs in stack and 0 outputs - 5 pops
 		cmp (sp)+, (sp)+
@@ -838,12 +837,13 @@ print7:
 			;		- result key - writen in the list that was passed as input in common area
 ;registers in use:
 			;		- r1
-system:		mov #140, -(sp)			;change priority so that new commands can interrupt crack process
+system:		mov r1, -(sp)			;saving r1 original value on stack
+			mov #140, -(sp)			;change priority so that new commands can interrupt crack process
 			jsr pc, changePrio
 			tst (sp)+				;pop priority argument
 			mov #101, @#tks			;enable the keyboard
 
-			mov r1, -(sp)			;saving r1 original value on stack
+			
 checkNext:	mov #outputKey, r1			;moving the address Key to r1
 			jsr pc, nextKey			;calling nextKey
 			mov crackKeyLen, r1
@@ -1558,7 +1558,6 @@ inputDest:	.word command
 command:	.blkw 31	;25 words for command - maximum length 50 chars
 img50Buffer:	.blkw 31
 length:		.word 0		;length of command (should no exceed 50)
-clkCounter: .word 0
 
 n1:	.word 36
 n2:	.word 27
