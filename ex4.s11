@@ -15,8 +15,6 @@ dot=56
 
 main:	mov pc, sp			;initializing the stack
 		tst -(sp)
-		tst -(sp)			;place for quit indication
-		clr (sp)			;0 for continue and 1 for quit
 		mov #input, @#60	;keyboard routine
 		mov #200, @#62		;keyboard routine priority 4
 		mov #clock, @#100	;clock routine
@@ -33,13 +31,12 @@ main:	mov pc, sp			;initializing the stack
 		mov #101, @#tks		;keyboard RE=1 IE=1
 		mov #100, @#lcs		;clock IE=1
 w:		wait				;wait for keyboard interrupt
-		tst (sp)			;test quit indication
+		tst genQuitFlag		;test quit indication
 		bne sayGoodBye
 		tst crackQuitFlag
 		bne sayGoodBye
 		br w
-sayGoodBye:		
-		tst (sp)+			;quit command was received so pop the output place
+sayGoodBye:
 		mov #text15, -(sp)
 		mov n15, -(sp)
 		jsr pc, printString	;print goodbye message
@@ -135,13 +132,10 @@ endofline:
 		cmp r1, #img50Buffer;there is a different handling for newline in image receiving
 		beq imgEndofline
 ;newline in command indicates end of command entry		
-		tst -(sp)			;place for quit indication
 		clr ClockTick		;reset the time counters
 		clr Clock10th
 		clr Clock
 		jsr pc, excuteCommand	;execute the command
-		mov (sp), 12(sp)	;quit signal to main
-		tst (sp)+			;pop the place for quit indication for excuteCommand
 		clr length			;length = 0 prepare for next line of input
 		br endInputRoutine
 imgEndofline:
@@ -171,7 +165,7 @@ noMoreSP:
 		jsr pc, compareCommand	;find out which command was inserted
 		tst (sp)+
 		mov (sp)+, r1		;number of command in r1
-		clr 6(sp)			;output = not quit command
+		clr genQuitFlag		;output = not quit command
 		mov r0, -(sp)		;address of start of input command in stack - popped in the end of this routine
 ;encode		
 comm1:	cmp r1, #1
@@ -248,7 +242,7 @@ comm6:	cmp r1, #6
 ;quit		
 comm7:	cmp r1, #7
 		bne unknown
-		inc 10(sp)			;passing an indication the quit command was received
+		mov #1, genQuitFlag		;passing an indication the quit command was received
 		mov #1, crackQuitFlag	;indicating to crack that quit command was received
 		br finishExecute
 ;unknown command		
@@ -666,7 +660,7 @@ dontQuit:
 		jsr pc, messageClk	;print the time that took to perform crack
 		tst (sp)+
 		mov #emptyKey, -(sp)	;reset the key for next crack command
-		mov #1, -(sp)
+		mov #0, -(sp)
 		mov #outputKey, -(sp)
 		jsr pc, setKey
 		cmp (sp)+, (sp)+
@@ -682,7 +676,7 @@ noKeyFound:
 		jsr pc, printString
 		cmp (sp)+, (sp)+
 		mov #emptyKey, -(sp)	;reset the key for next crack command
-		mov #1, -(sp)
+		mov #0, -(sp)
 		mov #outputKey, -(sp)
 		jsr pc, setKey
 		cmp (sp)+, (sp)+
@@ -1405,10 +1399,10 @@ setKey:		mov r0, -(sp)		;backup register r0, r1, r2, r3 and r4 values in stack
 			mov r4, -(sp)
 			mov 20(sp), r0 		;move original key address to register r0
 			beq .+54			;if the address is null - return from the function
-			mov 16(sp), r1		;move key length to register r1 
-			beq .+46			;if key length is zero - return from the function
 			mov 14(sp), r2		;move linked list address to register r2
-			beq .+40			;if the address in null - return from the function
+			beq .+46			;if the address in null - return from the function
+			mov 16(sp), r1		;move key length to register r1 
+			beq .+30			;if key length is zero - reset the given list
 			clr (r2)
 			movb (r0)+, (r2)
 			add #2, r2
@@ -1517,6 +1511,7 @@ Crack10th: .word 0
 CrackClock: .word 0
 
 crackQuitFlag: .word 0
+genQuitFlag: .word 0
 
 inputKey:		
 inode1:	.word 0, inode2
