@@ -13,6 +13,13 @@ dot=56
 
 . = torg + 5000
 
+;**********************main routine****************************
+;steps:			
+		;initialize the interrupt vectors
+		;initialize the status registers
+		;prints welcome message	(by printString)
+		;wait for interrupts
+		;print goodbye message	(by printString)
 main:	mov pc, sp			;initializing the stack
 		tst -(sp)
 		mov #input, @#60	;keyboard routine
@@ -24,28 +31,43 @@ main:	mov pc, sp			;initializing the stack
 		mov n10, -(sp)
 		jsr pc, printString	;print welcome message
 		cmp (sp)+, (sp)+
-		mov #text16, -(sp)		;print the $ indicator for next command line
+		mov #text16, -(sp)	
 		mov n16, -(sp)
-		jsr pc, printString
+		jsr pc, printString	;print the $ indicator for next command line
 		cmp (sp)+, (sp)+
 		mov #101, @#tks		;keyboard RE=1 IE=1
 		mov #100, @#lcs		;clock IE=1
-w:		wait				;wait for keyboard interrupt
+w:		wait				;wait for keyboard or clock interrupt
 		tst genQuitFlag		;test quit indication
-		bne sayGoodBye
-		tst crackQuitFlag
 		bne sayGoodBye
 		br w
 sayGoodBye:
 		mov #text15, -(sp)
 		mov n15, -(sp)
 		jsr pc, printString	;print goodbye message
-		cmp (sp)+, (sp)+	;pop printString inputs
+		cmp (sp)+, (sp)+
 		halt
+;****************************************************************
 
 
-		
-;##################################################################
+;**********************clock interrupt routine****************************
+;steps:			
+		;advance the general time counter
+		;advance the crack's time counter
+;inputs:	;		in common area
+			;		- general time counters:
+			;			ClockTick - tick counter
+			;			Clock10th - 0.1 sec counter
+			;			Clock     - 1 sec counter
+			;		- crack's time counters:
+			;			CrackTick - tick counter
+			;			Crack10th - 0.1 sec counter
+			;			CrackClock- 1 sec counter
+;outputs:
+			;		- increase in the given counters
+;registers in use:
+			;		- r0
+			;		- r1
 clock:	mov r0, -(sp)		;save r0 original value in stack
 		mov r1, -(sp)		;save r1 original value in stack
 		mov rate, r1		;number of clock interrupts in second to r1
@@ -77,11 +99,30 @@ clockFin:
 		mov (sp)+, r1		;restore r1 original value
 		mov (sp)+, r0		;restore r0 original value
 		rti
-;##################################################################	
+;****************************************************************	
 
 
 
-;##################################################################			
+;**********************keyboard interrupt routine****************************
+;steps:			
+		;echo the input to the screen
+		;saving the inputs until a newline char is received
+		;handling processing of new command	(by excuteCommand)
+		;handling insertion of new data to images (by insertLineToImage)
+		;enabling the keyboard for more user inputs
+		;reseting the general time counters
+		
+;inputs:	;		in common area
+			;		- command - start of input saving buffer
+			;		- img50Buffer - start of image data buffer
+			;		- inputDest - indication for the final destination of the user input (command or image data)
+			;		- length - the number of chars already in the current input buffer			
+;outputs:
+			;		- increase in the given counters
+;registers in use:
+			;		- r0
+			;		- r1
+			;		- r2			
 input:	mov r0, -(sp)		;save r0 original value in stack
 		mov r1, -(sp)		;save r1 original value in stack
 		mov r2, -(sp)		;save r2 original value in stack
@@ -147,10 +188,22 @@ endInputRoutine:
 		mov (sp)+, r0		;restore r0 original value
 		mov #101, @#tks		;keyboard RE=1
 		rti
-;##################################################################	
+;****************************************************************	
 
 		
-;##################################################################	
+;**********************excuteCommand routine****************************
+;steps:			
+		;finds out which command was inserted (by compareCommand)
+		;calling the corresponding routine for execution of the command
+		;print the time message for some of the commands (by messageClk)
+		;prints the $ char
+;inputs: 	;		in common area:
+			;		- address of the command line saving buffer
+			;		- address of the first string with the name of the first program command
+;outputs:	;		- indication that a quit command was received - in common area			
+;registers in use:
+			;		- r0
+			;		- r1	
 excuteCommand:
 		mov r0, -(sp)		;save r0 original value in stack
 		mov r1, -(sp)		;save r1 original value in stack
@@ -243,7 +296,6 @@ comm6:	cmp r1, #6
 comm7:	cmp r1, #7
 		bne unknown
 		mov #1, genQuitFlag		;passing an indication the quit command was received
-		mov #1, crackQuitFlag	;indicating to crack that quit command was received
 		br finishExecute
 ;unknown command		
 unknown:
@@ -257,10 +309,21 @@ finishExecute:
 		mov (sp)+, r1			;restore r1 original value
 		mov (sp)+, r0			;restore r0 original value
 		rts pc
-;##################################################################	
+;****************************************************************	
 		
 		
-;##################################################################	
+;**********************compareCommand routine****************************
+;steps:			
+		;finds out which command was inserted by the user by comparing to the command-name strings
+;inputs: 	;
+			;		- address of the command line saving buffer - in stack
+			;		- address of the first string with the name of the first program command - in stack
+;outputs:
+			;		- result key - writen in the list that was passed as input in common area
+;registers in use:
+			;		- r0
+			;		- r1
+			;		- r2	
 compareCommand:
 		mov r0, -(sp)		;save r0 original value in stack
 		mov r1, -(sp)		;save r1 original value in stack
@@ -297,10 +360,20 @@ endWithSP:
 		mov (sp)+, r1		;restore r1 original value
 		mov (sp)+, r0		;restore r0 original value
 		rts	pc	
-;##################################################################	
+;****************************************************************	
 		
 		
-;##################################################################			
+;**********************execImgCommand routine****************************
+;steps:			
+		;find the arguments for encode or decode command
+		;ask the user for the image to process
+
+;inputs: 	;		- address of the command line saving buffer - in stack		
+;registers in use:
+			;		- r0
+			;		- r1
+			;		- r2
+			;		- r3			
 execImgCommand:
 		mov r0, -(sp)		;save r0 original value in stack
 		mov r1, -(sp)		;save r1 original value in stack
@@ -351,10 +424,26 @@ pAskImg:
 		mov (sp)+, r1		;restore r1 original value
 		mov (sp)+, r0		;restore r0 original value
 		rts pc
-;##################################################################
+;****************************************************************
 
 
-;##################################################################
+;**********************execSet routine****************************
+;steps:			
+		;read the new hash\key that was inserted
+		;convert the input from ascii to corresponding value
+		;set the new key or hash in their place in memory (#Hash / #inputKey(by setKey)
+		;prints the new hash\key (by diplayHash\printKey)
+;inputs: 	;
+			;		- address of the command line saving buffer - in stack		
+			;		- the number of the program-command
+			;		- length of the input buffer - common area
+;outputs:	;		- indication that a quit command was received - in common area			
+;registers in use:
+			;		- r0
+			;		- r1
+			;		- r2
+			;		- r3
+			;		- r4			
 execSet:
 	mov r0, -(sp)			;save r0 original value in stack
 	mov r1, -(sp)			;save r1 original value in stack
@@ -434,11 +523,21 @@ fullSetDone:
 	mov (sp)+, r1			;restore r1 original value
 	mov (sp)+, r0			;restore r0 original value
 	rts pc
-;##################################################################
+;****************************************************************
 
 
 
-;##################################################################
+;**********************diplayHash routine****************************
+;steps:			
+		;print the hash from #hash (by printString)
+;inputs: 	;		in common area:
+			;		- address of the Hash function		
+			;		- buffer for temp ascii values representing the hash values		
+;registers in use:
+			;		- r0
+			;		- r1
+			;		- r2
+			;		- r3
 diplayHash:
 	mov r0, -(sp)			;save r0 original value in stack
 	mov r1, -(sp)			;save r1 original value in stack
@@ -472,13 +571,21 @@ insertHash:
 	mov (sp)+, r1			;restore r1 original value
 	mov (sp)+, r0			;restore r0 original value
 	rts pc
-
-;##################################################################
-
+;****************************************************************
 
 
 
-;##################################################################
+
+;**********************execUnknown routine****************************
+;steps:
+		;print the name of the unknown command
+		;print the message for unknown command
+;inputs: 	;
+			;		- address of the command line saving buffer - in stack		
+			;		- length of the input buffer - common area			
+;registers in use:
+			;		- r0
+			;		- r1
 execUnknown:
 	mov r0, -(sp)			;save r0 original value in stack
 	mov r1, -(sp)			;save r1 original value in stack
@@ -507,12 +614,23 @@ finishUnknow:			;print the dot in the end of the message
 	mov (sp)+, r1			;restore r1 original value
 	mov (sp)+, r0			;restore r0 original value
 	rts pc
-;##################################################################
+;****************************************************************
 
 
 
 
-;##################################################################
+;**********************execCrack routine****************************
+;steps:			
+		;find the arguments for crack command and set them in the common area
+		;ask the user for the image to process
+;inputs: 	;
+			;		- address of the command line saving buffer - in stack		
+			;		- length of the input buffer - common area		
+;registers in use:
+			;		- r0
+			;		- r1
+			;		- r2
+			;		- r3
 execCrack:
 		mov r0, -(sp)		;save r0 original value in stack
 		mov r1, -(sp)		;save r1 original value in stack
@@ -556,10 +674,31 @@ CrackArg:
 		mov (sp)+, r1		;restore r1 original value
 		mov (sp)+, r0		;restore r0 original value
 		rts pc
-;##################################################################
+;****************************************************************
 
 
-;##################################################################
+;**********************insertLineToImage routine****************************
+;steps:			
+		;insert the new data into the current image (1/2/3)
+		;if the image is full:
+			;call encode (IMG1 is full)
+			;call decode (IMG1 is full)
+			;start filling the next image (first image of crack is full - IMG2)
+			;call crack (by system) (IMG3 is full)
+			;print the key found by crack
+;inputs: 	;		in common area:
+			;		- address of encode/decode image - IMG1
+			;		- address of crack images - IMG2, IMG3
+			;		- the number of bytes already inserted to image - imagenBytes
+			;		- number of rows (nRows or crackRows)
+			;		- number of columns (nCols or crackCols)
+			;		- hash function address (Hash)
+			;		- inputKey and outputKey addresses
+;registers in use:
+			;		- r0
+			;		- r1
+			;		- r2
+			;		- r3
 insertLineToImage:
 		mov r0, -(sp)		;save r0 original value in stack
 		mov r1, -(sp)		;save r1 original value in stack
@@ -640,7 +779,7 @@ startCracking:
 		cmp (sp)+, (sp)+		;popping the stack - 5 inputs of system in stack and 0 outputs - 5 pops
 		cmp (sp)+, (sp)+
 		tst (sp)+
-		tst crackQuitFlag
+		tst genQuitFlag
 		beq dontQuit
 		jmp endOfLineInsert
 dontQuit:		
@@ -665,7 +804,11 @@ dontQuit:
 		jsr pc, setKey
 		cmp (sp)+, (sp)+
 		tst (sp)+
-		mov inputDest, -(sp)
+		mov #command, -(sp)
+		tst EncDec
+		beq leftCommand
+		mov #img50Buffer, (sp)
+leftCommand:		
 		mov length, -(sp)
 		jsr pc, printString		;print the input that may have been interrupted by the result of crack
 		cmp (sp)+, (sp)+
@@ -681,7 +824,11 @@ noKeyFound:
 		jsr pc, setKey
 		cmp (sp)+, (sp)+
 		tst (sp)+
-		mov #inputDest, -(sp)
+		mov #command, -(sp)
+		tst EncDec
+		beq commLeft
+		mov #img50Buffer, (sp) 
+commLeft:
 		mov length, -(sp)
 		jsr pc, printString		;print the input that may have been interrupted by the result of crack
 		cmp (sp)+, (sp)+
@@ -729,18 +876,34 @@ endOfLineInsert:
 		mov (sp)+, r1			;restore r1 original value
 		mov (sp)+, r0			;restore r0 original value
 		rts pc
-;##################################################################
+;****************************************************************
 
-;##################################################################
-changePrio:				;change the software priority during crack process
+
+
+
+;**********************changePrio routine****************************
+;steps:			
+		;change the software priority
+;inputs: 
+			;		- new wanted priority in stack
+changePrio:
 	mov (sp), -(sp)
 	mov 4(sp), 2(sp)	;new priority in stack where psw is expected by rti
 	rti
-;##################################################################
+;****************************************************************
 
 
 
-;##################################################################
+;**********************messageClk routine****************************
+;steps:			
+		;print the value of the time counter (by printTime, by printString)
+		;print the result image for encode or decode (by printEncDecImage)
+;inputs: 
+			;		- number of command - in stack
+			;		- strings containing the command names
+;registers in use:
+			;		- r0
+			;		- r1
 messageClk:
 		mov r0, -(sp)		;save r0 original value in stack
 		mov r1, -(sp)		;save r1 original value in stack
@@ -812,9 +975,8 @@ print7:
 		cmp (sp)+, (sp)+
 		mov (sp)+, r1		;restore r1 original value
 		mov (sp)+, r0		;restore r0 original value
-		rts pc
-		
-;##################################################################
+		rts pc		
+;****************************************************************
 
 
 ;**********************System routine****************************
@@ -846,7 +1008,7 @@ checkNext:	mov #outputKey, r1			;moving the address Key to r1
 			cmp (r1), #-1	;if the key is longer than crackKeyLen - stop searching
 			bne systemFin
 			
-			tst crackQuitFlag
+			tst genQuitFlag
 			bne systemFin
 			
 ;"Encrypt" - encrypting the original image using encrypt routine
@@ -1510,7 +1672,6 @@ CrackTick: .word 0
 Crack10th: .word 0
 CrackClock: .word 0
 
-crackQuitFlag: .word 0
 genQuitFlag: .word 0
 
 inputKey:		
