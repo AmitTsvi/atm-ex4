@@ -435,9 +435,8 @@ pAskImg:
 		;prints the new hash\key (by diplayHash\printKey)
 ;inputs: 	;
 			;		- address of the command line saving buffer - in stack		
-			;		- the number of the program-command
+			;		- the number of the program-command - in stack
 			;		- length of the input buffer - common area
-;outputs:	;		- indication that a quit command was received - in common area			
 ;registers in use:
 			;		- r0
 			;		- r1
