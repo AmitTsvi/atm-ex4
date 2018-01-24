@@ -1448,7 +1448,7 @@ newLine:		tstb @#tps
 			rts pc
 			
 ;Function printEncDecImage prints the picture by polling method. 
-printEncDecImage:mov r0, -(sp)		;backup register r0, r1, r2, r3 and r4 values in stack
+printEncDecImage:mov r0, -(sp)	;backup register r0, r1, r2, r3 and r4 values in stack
 			mov r1, -(sp)	
 			mov r2, -(sp)
 			mov r3, -(sp)
@@ -1461,11 +1461,11 @@ printEncDecImage:mov r0, -(sp)		;backup register r0, r1, r2, r3 and r4 values in
 			movb (r0)+, r1		;pixel's value in r1
 			jsr pc, setBuffer	;put print value to buffer
 			mov r2, -(sp)
-			mov #1, -(sp)
+			mov #1, -(sp)		;set inputs to printString function
 			jsr pc, printString	;print value from buffer
 			cmp (sp)+, (sp)+
 			dec r4
-			bne .+14			
+			bne .+14			;if didn't print the whole row - continue - else print newLine and continue
 			jsr pc, newLine		;print new line after the given number of columns 
 			dec r3
 			beq .+6				;continue if not the end of the picture
@@ -1490,24 +1490,24 @@ print:		mov r0, -(sp)		;backup register r0, r1, r2, r3 and r4 values in stack
 			mov 20(sp), r0		;the picture beginning address in r0
 			mov #toPrint, r2		;buffer address to r2
 			mov 14(sp), r4		;number of rows to r4
-			movb (r0)+, r1
-			cmp #10, r1
-			ble	.+8
+			movb (r0)+, r1		;move pixel to r1 
+			cmp #10, r1			
+			ble	.+8				;if the pixels value is greater or equal then 10 print print asterisk, else print space
 			mov #space, (r2)
 			br	.+6
 			mov #asterisk, (r2)
 			mov r2, -(sp)
-			mov #1, -(sp)
+			mov #1, -(sp)		;input values to print string
 			jsr pc, printString
 			cmp (sp)+, (sp)+
 			dec r4
-			bne .+14
-			jsr pc, newLine
-			dec r3
+			bne .+14			;if didn't print the whole row - continue - else print newLine and continue
+			jsr pc, newLine		;print new line after the given number of columns
+			dec r3				;decrease from number of rows
 			beq .+6
-			bne .-56
-			dec r3
-			bne .-56
+			bne .-56			;continue looping on function if didn't finish
+			dec r3				;decrease from number of rows
+			bne .-56			;continue looping on function if didn't finish
 			mov (sp)+, r4		;restore register r0, r1, r2, r3 and r4 values from stack
 			mov (sp)+, r3		
 			mov (sp)+, r2
